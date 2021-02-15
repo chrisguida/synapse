@@ -115,7 +115,7 @@ class PurgeEventsStore(StateGroupWorkerStore, SQLBaseStore):
 
         logger.info("[purge] looking for events to delete")
 
-        should_delete_expr = "state_key IS NULL"
+        should_delete_expr = "state_events.state_key IS NULL"
         should_delete_params = ()  # type: Tuple[Any, ...]
         if not delete_local_events:
             should_delete_expr += " AND event_id NOT LIKE ?"
