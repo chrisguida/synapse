@@ -128,6 +128,7 @@ class _EventPeristenceQueue:
             # we can just add these new events to that item.
             end_item = queue[-1]
             if end_item.backfilled == backfilled:
+                logger.debug("Adding persistence batch to the existing item")
                 end_item.events_and_contexts.extend(events_and_contexts)
                 return end_item.deferred.observe()
 
@@ -160,27 +161,37 @@ class _EventPeristenceQueue:
         """
 
         if room_id in self._currently_persisting_rooms:
+            logger.debug("%s is already being persisted; waiting", room_id)
             return
 
         self._currently_persisting_rooms.add(room_id)
 
         async def handle_queue_loop():
+            logger.debug("Starting persist loop for %s", room_id)
             try:
                 queue = self._get_drainining_queue(room_id)
                 for item in queue:
+                    logger.debug(
+                        "Persisting events in %s: %s",
+                        room_id,
+                        [e.event_id for e, c in item.events_and_contexts],
+                    )
                     try:
                         ret = await per_item_callback(item)
                     except Exception:
+                        logger.exception("Exception during event persistence")
                         with PreserveLoggingContext():
                             item.deferred.errback()
                     else:
                         with PreserveLoggingContext():
                             item.deferred.callback(ret)
+                    logger.debug("Completed event batch in %s", room_id)
             finally:
                 queue = self._event_persist_queues.pop(room_id, None)
                 if queue:
                     self._event_persist_queues[room_id] = queue
                 self._currently_persisting_rooms.discard(room_id)
+                logger.debug("Ending persist loop for %s", room_id)
 
         # set handle_queue_loop off in the background
         run_as_background_process("persist_events", handle_queue_loop)
