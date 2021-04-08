@@ -56,6 +56,7 @@ from synapse.replication.tcp.streams import (
     CachesStream,
     EventsStream,
     FederationStream,
+    PresenceStream,
     ReceiptsStream,
     Stream,
     TagAccountDataStream,
@@ -150,6 +151,14 @@ class ReplicationCommandHandler:
                 # Only add ReceiptsStream as a source on the instance in charge of
                 # receipts.
                 if hs.get_instance_name() in hs.config.worker.writers.receipts:
+                    self._streams_to_replicate.append(stream)
+
+                continue
+
+            if isinstance(stream, (PresenceStream)):
+                # Only add PresenceStream as a source on the instance in charge
+                # of presence.
+                if hs.get_instance_name() in hs.config.worker.writers.presence:
                     self._streams_to_replicate.append(stream)
 
                 continue

@@ -119,7 +119,8 @@ assert LAST_ACTIVE_GRANULARITY < IDLE_TIMER
 
 
 class BasePresenceHandler(abc.ABC):
-    """Parts of the PresenceHandler that are shared between workers and master"""
+    """Parts of the PresenceHandler that are shared between workers and presence
+    writer"""
 
     def __init__(self, hs: "HomeServer"):
         self.clock = hs.get_clock()
@@ -260,6 +261,8 @@ class WorkerPresenceHandler(BasePresenceHandler):
         self.hs = hs
         self.is_mine_id = hs.is_mine_id
 
+        self._presence_writer_instance = hs.config.worker.writers.presence[0]
+
         self.presence_router = hs.get_presence_router()
         self._presence_enabled = hs.config.use_presence
 
@@ -270,8 +273,8 @@ class WorkerPresenceHandler(BasePresenceHandler):
         self.notifier = hs.get_notifier()
         self.instance_id = hs.get_instance_id()
 
-        # user_id -> last_sync_ms. Lists the users that have stopped syncing
-        # but we haven't notified the master of that yet
+        # user_id -> last_sync_ms. Lists the users that have stopped syncing but
+        # we haven't notified the presence writer of that yet
         self.users_going_offline = {}
 
         self._bump_active_client = ReplicationBumpPresenceActiveTime.make_client(hs)
@@ -304,22 +307,23 @@ class WorkerPresenceHandler(BasePresenceHandler):
             )
 
     def mark_as_coming_online(self, user_id):
-        """A user has started syncing. Send a UserSync to the master, unless they
-        had recently stopped syncing.
+        """A user has started syncing. Send a UserSync to the presence writer,
+        unless they had recently stopped syncing.
 
         Args:
             user_id (str)
         """
         going_offline = self.users_going_offline.pop(user_id, None)
         if not going_offline:
-            # Safe to skip because we haven't yet told the master they were offline
+            # Safe to skip because we haven't yet told the presence writer they
+            # were offline
             self.send_user_sync(user_id, True, self.clock.time_msec())
 
     def mark_as_going_offline(self, user_id):
-        """A user has stopped syncing. We wait before notifying the master as
-        its likely they'll come back soon. This allows us to avoid sending
-        a stopped syncing immediately followed by a started syncing notification
-        to the master
+        """A user has stopped syncing. We wait before notifying the presence
+        writer as its likely they'll come back soon. This allows us to avoid
+        sending a stopped syncing immediately followed by a started syncing
+        notification to the presence writer
 
         Args:
             user_id (str)
@@ -327,8 +331,8 @@ class WorkerPresenceHandler(BasePresenceHandler):
         self.users_going_offline[user_id] = self.clock.time_msec()
 
     def send_stop_syncing(self):
-        """Check if there are any users who have stopped syncing a while ago
-        and haven't come back yet. If there are poke the master about them.
+        """Check if there are any users who have stopped syncing a while ago and
+        haven't come back yet. If there are poke the presence writer about them.
         """
         now = self.clock.time_msec()
         for user_id, last_sync_ms in list(self.users_going_offline.items()):
@@ -434,9 +438,12 @@ class WorkerPresenceHandler(BasePresenceHandler):
         if not self.hs.config.use_presence:
             return
 
-        # Proxy request to master
+        # Proxy request to instance that writes presence
         await self._set_state_client(
-            user_id=user_id, state=state, ignore_status_msg=ignore_status_msg
+            instance_name=self._presence_writer_instance,
+            user_id=user_id,
+            state=state,
+            ignore_status_msg=ignore_status_msg,
         )
 
     async def bump_presence_active_time(self, user):
@@ -447,9 +454,11 @@ class WorkerPresenceHandler(BasePresenceHandler):
         if not self.hs.config.use_presence:
             return
 
-        # Proxy request to master
+        # Proxy request to instance that writes presence
         user_id = user.to_string()
-        await self._bump_active_client(user_id=user_id)
+        await self._bump_active_client(
+            instance_name=self._presence_writer_instance, user_id=user_id
+        )
 
 
 class PresenceHandler(BasePresenceHandler):

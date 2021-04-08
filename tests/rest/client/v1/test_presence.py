@@ -19,6 +19,7 @@ from twisted.internet import defer
 
 from synapse.rest.client.v1 import presence
 from synapse.types import UserID
+from synapse.handlers.presence import PresenceHandler
 
 from tests import unittest
 
@@ -33,7 +34,7 @@ class PresenceTestCase(unittest.HomeserverTestCase):
 
     def make_homeserver(self, reactor, clock):
 
-        presence_handler = Mock()
+        presence_handler = Mock(spec=PresenceHandler)
         presence_handler.set_state.return_value = defer.succeed(None)
 
         hs = self.setup_test_homeserver(
