@@ -23,6 +23,7 @@ from twisted.internet.interfaces import IAddress
 from twisted.python.failure import Failure
 from twisted.web.server import Request, Site
 
+from synapse.api.constants import MAX_PDU_SIZE
 from synapse.config.server import ListenerConfig
 from synapse.http import get_request_user_agent, redact_uri
 from synapse.http.request_metrics import RequestMetrics, requests_counter
@@ -58,6 +59,16 @@ class SynapseRequest(Request):
     Attributes:
         logcontext: the log context for this request
     """
+
+    # the biggest request we expect to see is a fully-loaded federation/send request.
+    # Other than a bit of metadata, the main thing in such a request is up to 50 PDUs,
+    # and up to 100 EDUs. PDUs are limited to 65535 bytes (possibly slightly more if
+    # the sender didn't use canonical encoding); there is no specced limit to EDUs
+    # (see https://github.com/matrix-org/matrix-doc/issues/3121).
+    #
+    # in short, we somewhat arbitrarily limit requests to 200 * 64K.
+    #
+    MAX_REQUEST_SIZE = 200 * MAX_PDU_SIZE
 
     def __init__(self, channel, *args, **kw):
         Request.__init__(self, channel, *args, **kw)
@@ -96,6 +107,16 @@ class SynapseRequest(Request):
             self.clientproto.decode("ascii", errors="replace"),
             self.site.site_tag,
         )
+
+    def handleContentChunk(self, data):
+        if self.content.tell() + len(data) > self.MAX_REQUEST_SIZE:
+            logger.warning(
+                "Aborting connection from %s because the request exceeds maximum size",
+                self.client,
+            )
+            self.transport.abortConnection()
+            return
+        super().handleContentChunk(data)
 
     @property
     def requester(self) -> Optional[Union[Requester, str]]:
