@@ -286,6 +286,10 @@ class HomeServer(metaclass=abc.ABCMeta):
         if self.config.run_background_tasks:
             self.setup_background_tasks()
 
+    def start_listening(self) -> None:
+        """Start the HTTP, manhole, metrics, etc listeners"""
+        pass
+
     def setup_background_tasks(self) -> None:
         """
         Some handlers have side effects on instantiation (like registering
